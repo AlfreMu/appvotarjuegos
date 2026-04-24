@@ -1,0 +1,16 @@
+.next
+node_modules
+out
+dist
+coverage
+.vercel
+.turbo
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.log
+*.tsbuildinfo
+capy saluda.mp4
+capybara gamer.png
+capygamer saluda.mp4
