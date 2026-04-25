@@ -36,43 +36,6 @@ export default function CreateRoomButton() {
         console.error('Room created but no data was returned')
         return
       }
-
-      const playerRes = await supabase
-        .from('players')
-        .insert([
-          {
-            nickname: 'Host',
-            avatar: 'capybara',
-            room_id: room.id,
-            is_host: true,
-          },
-        ])
-        .select()
-        .single()
-
-      if (playerRes.error) {
-        console.error('Error creating host player:', playerRes.error)
-        return
-      }
-
-      const player = playerRes.data
-
-      if (!player) {
-        console.error('Host player was not returned')
-        return
-      }
-
-      const { error: updateError } = await supabase
-        .from('rooms')
-        .update({ host_id: player.id })
-        .eq('id', room.id)
-
-      if (updateError) {
-        console.error('Error updating room host:', updateError)
-        return
-      }
-
-      window.sessionStorage.setItem(`viciemos-host-player-id:${room.id}`, player.id)
       router.push(`/room/${room.id}`)
     } catch (err) {
       console.error('Failed to create room:', err)

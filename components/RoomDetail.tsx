@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { GAME_OPTIONS } from '@/lib/games'
 import { getSupabaseBrowserClient } from '@/lib/supabaseClient'
 
@@ -9,6 +9,10 @@ type Room = {
   status: string
   mode: string
   host_id: string | null
+  winner_proposal_id: string | null
+  proposal_duration: number
+  voting_duration: number
+  started_at: string | null
 }
 
 type Player = {
@@ -39,6 +43,21 @@ type RoomDetailProps = {
 }
 
 const AVATARS = ['capybara', 'dog', 'cat', 'fox']
+const TIME_ZONE_SUFFIX_PATTERN = /(Z|[+-]\d{2}:?\d{2})$/i
+
+const getStartedAtTimestamp = (startedAt: string | null) => {
+  if (!startedAt) {
+    return null
+  }
+
+  const isoStartedAt = startedAt.includes('T') ? startedAt : startedAt.replace(' ', 'T')
+  const normalizedStartedAt = TIME_ZONE_SUFFIX_PATTERN.test(isoStartedAt)
+    ? isoStartedAt
+    : `${isoStartedAt}Z`
+  const timestamp = Date.parse(normalizedStartedAt)
+
+  return Number.isNaN(timestamp) ? null : timestamp
+}
 
 export default function RoomDetail({ roomId }: RoomDetailProps) {
   const [room, setRoom] = useState<Room | null>(null)
@@ -59,9 +78,18 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
   const [votes, setVotes] = useState<Vote[]>([])
   const [voteError, setVoteError] = useState<string | null>(null)
   const [voteLoading, setVoteLoading] = useState(false)
+  const [rouletteLoading, setRouletteLoading] = useState(false)
+  const [proposalDuration, setProposalDuration] = useState(90)
+  const [votingDuration, setVotingDuration] = useState(30)
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null)
+  const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null)
   const [players, setPlayers] = useState<Player[]>([])
   const isHost = currentPlayer?.id === room?.host_id
+  const roomStatus = room?.status
+  const roomStartedAt = room?.started_at
+  const roomProposalDuration = room?.proposal_duration
+  const roomVotingDuration = room?.voting_duration
+  const transitionLockRef = useRef(false)
 
   useEffect(() => {
     const fetchRoom = async () => {
@@ -82,6 +110,8 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
           console.error('Database error:', dbError)
         } else if (data) {
           setRoom(data)
+          setProposalDuration(data.proposal_duration ?? 90)
+          setVotingDuration(data.voting_duration ?? 30)
         }
       } catch (err) {
         setError('Error cargando la sala')
@@ -99,11 +129,8 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
     const currentRoomId = roomId
 
     if (!currentRoomId) {
-      console.log('[Room] Skipping room subscription because roomId is not ready')
       return
     }
-
-    console.log('Subscribing to room:', currentRoomId)
 
     const roomChannel = supabase
       .channel('room-status')
@@ -116,19 +143,112 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
           filter: `id=eq.${currentRoomId}`,
         },
         (payload) => {
-          console.log('ROOM UPDATE:', payload.new)
-          setRoom(payload.new as Room)
+          const nextRoom = payload.new as Room
+          setRoom(nextRoom)
+          setProposalDuration(nextRoom.proposal_duration ?? 90)
+          setVotingDuration(nextRoom.voting_duration ?? 30)
         },
       )
-      .subscribe((status) => {
-        console.log(`[Room] Subscription status for room ${currentRoomId}:`, status)
-      })
+      .subscribe()
 
     return () => {
-      console.log(`[Room] Cleaning up room subscription for ${currentRoomId}`)
       supabase.removeChannel(roomChannel)
     }
   }, [roomId])
+
+  useEffect(() => {
+    if (roomStatus !== 'proposing' && roomStatus !== 'voting') {
+      setRemainingSeconds(null)
+      return
+    }
+
+    const startedAtTimestamp = getStartedAtTimestamp(roomStartedAt ?? null)
+
+    if (startedAtTimestamp === null) {
+      setRemainingSeconds(null)
+      return
+    }
+
+    const duration =
+      roomStatus === 'proposing' ? roomProposalDuration ?? 90 : roomVotingDuration ?? 30
+
+    const updateRemainingSeconds = () => {
+      const elapsedSeconds = Math.max(
+        0,
+        Math.floor((Date.now() - startedAtTimestamp) / 1000),
+      )
+
+      const remaining = Math.max(0, duration - elapsedSeconds)
+      setRemainingSeconds(remaining)
+    }
+
+    updateRemainingSeconds()
+
+    const interval = window.setInterval(updateRemainingSeconds, 1000)
+
+    return () => {
+      window.clearInterval(interval)
+    }
+  }, [roomStatus, roomStartedAt, roomProposalDuration, roomVotingDuration])
+
+  useEffect(() => {
+    if (!room || (room.status !== 'proposing' && room.status !== 'voting')) {
+      transitionLockRef.current = false
+      return
+    }
+
+    if (remainingSeconds === null || remainingSeconds > 0) {
+      transitionLockRef.current = false
+      return
+    }
+
+    if (transitionLockRef.current) {
+      return
+    }
+
+    transitionLockRef.current = true
+
+    const supabase = getSupabaseBrowserClient()
+
+    const runTransition = async () => {
+      try {
+        if (room.status === 'proposing') {
+          const { data, error } = await supabase
+            .from('rooms')
+            .update({ status: 'voting', started_at: new Date().toISOString() })
+            .eq('id', room.id)
+            .eq('status', 'proposing')
+            .select()
+
+          if (error) {
+            console.error('[Room] Auto transition to voting error:', error)
+            transitionLockRef.current = false
+          } else if (data?.[0]) {
+            setRoom(data[0] as Room)
+          }
+        } else if (room.status === 'voting') {
+          const { data, error } = await supabase
+            .from('rooms')
+            .update({ status: 'finished' })
+            .eq('id', room.id)
+            .eq('status', 'voting')
+            .select()
+
+          if (error) {
+            console.error('[Room] Auto transition to finished error:', error)
+            transitionLockRef.current = false
+          } else if (data?.[0]) {
+            setRoom(data[0] as Room)
+          }
+        }
+      } catch (err) {
+        console.error('[Room] Auto transition error:', err)
+        transitionLockRef.current = false
+      }
+    }
+
+    void runTransition()
+  }, [remainingSeconds, room])
 
   useEffect(() => {
     const supabase = getSupabaseBrowserClient()
@@ -142,7 +262,6 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
 
     const loadInitialProposals = async () => {
       try {
-        console.log(`[Proposals] Loading initial proposals for room ${currentRoomId}`)
         const { data, error } = await supabase
           .from('proposals')
           .select('*')
@@ -155,10 +274,6 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
         }
 
         if (isActive && data) {
-          console.log(
-            `[Proposals] Initial fetch complete for room ${currentRoomId}. Found ${data.length} proposals`,
-            data,
-          )
           setProposals(data as Proposal[])
         }
       } catch (err) {
@@ -167,8 +282,6 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
     }
 
     loadInitialProposals()
-
-    console.log(`[Proposals] Starting realtime subscription for room ${currentRoomId}`)
 
     const proposalChannel = supabase
       .channel('proposals-realtime')
@@ -182,7 +295,6 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
         },
         (payload) => {
           const newProposal = payload.new as Proposal
-          console.log('NEW PROPOSAL EVENT:', newProposal)
 
           setProposals((prev) => {
             if (prev.some((proposal) => proposal.id === newProposal.id)) {
@@ -193,9 +305,7 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
           })
         },
       )
-      .subscribe((status) => {
-        console.log(`[Proposals] Subscription status for room ${currentRoomId}:`, status)
-      })
+      .subscribe()
 
     return () => {
       isActive = false
@@ -215,7 +325,6 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
 
     const loadInitialVotes = async () => {
       try {
-        console.log(`[Votes] Loading initial votes for room ${currentRoomId}`)
         const { data, error } = await supabase
           .from('votes')
           .select('*')
@@ -227,10 +336,6 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
         }
 
         if (isActive && data) {
-          console.log(
-            `[Votes] Initial fetch complete for room ${currentRoomId}. Found ${data.length} votes`,
-            data,
-          )
           setVotes(data as Vote[])
         }
       } catch (err) {
@@ -239,8 +344,6 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
     }
 
     loadInitialVotes()
-
-    console.log(`[Votes] Starting realtime subscription for room ${currentRoomId}`)
 
     const voteChannel = supabase
       .channel('votes-realtime')
@@ -254,10 +357,6 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
         },
         (payload) => {
           const newVote = payload.new as Vote
-          console.log('VOTE EVENT RECEIVED:', payload)
-          console.log('RoomId:', roomId)
-          console.log('Payload room_id:', payload.new.room_id)
-          console.log('NEW VOTE EVENT:', newVote)
 
           setVotes((prev) => {
             if (prev.some((vote) => vote.id === newVote.id)) {
@@ -268,9 +367,7 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
           })
         },
       )
-      .subscribe((status) => {
-        console.log(`[Votes] Subscription status for room ${currentRoomId}:`, status)
-      })
+      .subscribe()
 
     return () => {
       isActive = false
@@ -292,7 +389,6 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
     const currentRoomId = roomId
 
     if (!currentRoomId) {
-      console.log('[Players] Skipping players effect because roomId is not ready')
       return
     }
 
@@ -300,7 +396,6 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
 
     const fetchInitialPlayers = async () => {
       try {
-        console.log(`[Players] Loading initial players for room ${currentRoomId}`)
         const { data, error } = await supabase
           .from('players')
           .select('*')
@@ -313,10 +408,6 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
         }
 
         if (isActive && data) {
-          console.log(
-            `[Players] Initial fetch complete for room ${currentRoomId}. Found ${data.length} players`,
-            data,
-          )
           setPlayers(data)
         }
       } catch (err) {
@@ -325,9 +416,6 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
     }
 
     fetchInitialPlayers()
-
-    console.log(`[Players] Starting realtime subscription for room ${currentRoomId}`)
-    console.log('Subscribing to room:', currentRoomId)
 
     const channel = supabase
       .channel('players-realtime')
@@ -341,7 +429,6 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
         },
         (payload) => {
           const newPlayer = payload.new as Player
-          console.log('NEW PLAYER EVENT:', newPlayer)
 
           setPlayers((prev) => {
             if (prev.some((player) => player.id === newPlayer.id)) {
@@ -353,11 +440,7 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
         },
       )
       .subscribe((status) => {
-        console.log(`[Players] Subscription status for room ${currentRoomId}:`, status)
-
-        if (status === 'SUBSCRIBED') {
-          console.log(`[Players] Successfully subscribed to room ${currentRoomId}`)
-        } else if (status === 'CHANNEL_ERROR') {
+        if (status === 'CHANNEL_ERROR') {
           console.error(`[Players] Channel error for room ${currentRoomId}`)
         } else if (status === 'TIMED_OUT') {
           console.error(`[Players] Subscription timed out for room ${currentRoomId}`)
@@ -365,38 +448,10 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
       })
 
     return () => {
-      console.log(`[Players] Cleaning up subscription for room ${currentRoomId}`)
       isActive = false
       supabase.removeChannel(channel)
     }
   }, [roomId])
-
-  useEffect(() => {
-    if (!room?.host_id || currentPlayer) {
-      return
-    }
-
-    const storedHostPlayerId =
-      typeof window !== 'undefined'
-        ? window.sessionStorage.getItem(`viciemos-host-player-id:${roomId}`)
-        : null
-
-    if (!storedHostPlayerId || storedHostPlayerId !== room.host_id) {
-      return
-    }
-
-    const hostPlayer = players.find((player) => player.id === room.host_id)
-
-    if (!hostPlayer) {
-      return
-    }
-
-    console.log('[Host] Auto-assigning current player from session storage', hostPlayer.id)
-    setCurrentPlayer(hostPlayer)
-    setHasJoined(true)
-    setNickname(hostPlayer.nickname)
-    setSelectedAvatar(hostPlayer.avatar)
-  }, [room?.host_id, players, currentPlayer, roomId])
 
   const handleJoinRoom = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -418,7 +473,7 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
             room_id: roomId,
             nickname: nickname.trim(),
             avatar: selectedAvatar,
-            is_host: false,
+            is_host: !room?.host_id,
           },
         ])
         .select()
@@ -431,8 +486,19 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
         const insertedPlayer = data as Player | null
 
         if (insertedPlayer) {
-          console.log('JOINED PLAYER:', insertedPlayer)
           setCurrentPlayer(insertedPlayer)
+          if (!room?.host_id) {
+            const { error: hostUpdateError } = await supabase
+              .from('rooms')
+              .update({ host_id: insertedPlayer.id })
+              .eq('id', roomId)
+
+            if (hostUpdateError) {
+              console.error('Error assigning host:', hostUpdateError)
+            }
+
+            setRoom((prev) => (prev ? { ...prev, host_id: insertedPlayer.id } : prev))
+          }
           setPlayers((prev) => {
             if (prev.some((player) => player.id === insertedPlayer.id)) {
               return prev
@@ -461,13 +527,21 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
 
     try {
       const supabase = getSupabaseBrowserClient()
-      const { error: dbError } = await supabase
+      const { data, error: dbError } = await supabase
         .from('rooms')
-        .update({ status: 'proposing' })
+        .update({
+          status: 'proposing',
+          started_at: new Date().toISOString(),
+          proposal_duration: proposalDuration,
+          voting_duration: votingDuration,
+        })
         .eq('id', roomId)
+        .select()
 
       if (dbError) {
         console.error('[Room] Error starting game:', dbError)
+      } else if (data?.[0]) {
+        setRoom(data[0] as Room)
       }
     } catch (err) {
       console.error('[Room] Start game error:', err)
@@ -485,13 +559,19 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
 
     try {
       const supabase = getSupabaseBrowserClient()
-      const { error: dbError } = await supabase
+      const { data, error: dbError } = await supabase
         .from('rooms')
-        .update({ status: 'voting' })
+        .update({
+          status: 'voting',
+          started_at: new Date().toISOString(),
+        })
         .eq('id', roomId)
+        .select()
 
       if (dbError) {
         console.error('[Room] Error moving to voting:', dbError)
+      } else if (data?.[0]) {
+        setRoom(data[0] as Room)
       }
     } catch (err) {
       console.error('[Room] Move to voting error:', err)
@@ -509,19 +589,51 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
 
     try {
       const supabase = getSupabaseBrowserClient()
-      const { error: dbError } = await supabase
+      const { data, error: dbError } = await supabase
         .from('rooms')
         .update({ status: 'finished' })
         .eq('id', roomId)
+        .select()
 
       if (dbError) {
         console.error('[Room] Error finishing voting:', dbError)
+      } else if (data?.[0]) {
+        setRoom(data[0] as Room)
       }
     } catch (err) {
       console.error('[Room] Finish voting error:', err)
     } finally {
       setStartGameLoading(false)
     }
+  }
+
+  const handleSpinRoulette = async () => {
+    if (!roomId || !room || !isHost || winners.length <= 1 || room.winner_proposal_id) {
+      return
+    }
+
+    setRouletteLoading(true)
+
+    setTimeout(async () => {
+      try {
+        const randomIndex = Math.floor(Math.random() * winners.length)
+        const selected = winners[randomIndex]
+
+        const supabase = getSupabaseBrowserClient()
+        const { error } = await supabase
+          .from('rooms')
+          .update({ winner_proposal_id: selected.id })
+          .eq('id', room.id)
+
+        if (error) {
+          console.error('Error updating winner:', error)
+        }
+      } catch (err) {
+        console.error('[Room] Roulette error:', err)
+      } finally {
+        setRouletteLoading(false)
+      }
+    }, 1000)
   }
 
   const handleAddProposal = async (e: FormEvent<HTMLFormElement>) => {
@@ -576,7 +688,6 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
       const insertedProposal = data as Proposal | null
 
       if (insertedProposal) {
-        console.log('JOINED PROPOSAL:', insertedProposal)
         setProposals((prev) => {
           if (prev.some((proposal) => proposal.id === insertedProposal.id)) {
             return prev
@@ -656,7 +767,6 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
       const insertedVote = data as Vote | null
 
       if (insertedVote) {
-        console.log('JOINED VOTE:', insertedVote)
         setSelectedProposalId(insertedVote.proposal_id)
         setVotes((prev) => {
           if (prev.some((vote) => vote.id === insertedVote.id)) {
@@ -687,12 +797,9 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
 
   const maxVotes = Object.values(voteCounts).length > 0 ? Math.max(...Object.values(voteCounts)) : 0
   const winners = proposals.filter((proposal) => voteCounts[proposal.id] === maxVotes && maxVotes > 0)
-
-  useEffect(() => {
-    console.log('Current player:', currentPlayer?.id)
-    console.log('Room host:', room?.host_id)
-    console.log('Is host:', isHost)
-  }, [currentPlayer?.id, room?.host_id, isHost])
+  const finalWinner = room?.winner_proposal_id
+    ? proposals.find((proposal) => proposal.id === room.winner_proposal_id) ?? null
+    : null
 
   if (loading) {
     return (
@@ -805,6 +912,59 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
               </form>
             )}
 
+            <div
+              className={`mt-8 rounded-2xl border border-slate-800 bg-slate-900/40 p-5 ${
+                isHost ? '' : 'hidden'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-4">
+                <h2 className="text-sm font-medium uppercase tracking-[0.16em] text-slate-400">
+                  Tiempos de juego
+                </h2>
+                <span className="text-xs text-slate-500">Editable por host</span>
+              </div>
+
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <label className="space-y-2 text-sm text-slate-300">
+                  <span className="block text-xs uppercase tracking-[0.16em] text-slate-400">
+                    Propuestas
+                  </span>
+                  <input
+                    type="number"
+                    min={10}
+                    value={proposalDuration}
+                    onChange={(e) => setProposalDuration(Number(e.target.value))}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-900/50 px-4 py-2 text-slate-200 focus:border-sky-500 focus:outline-none"
+                  />
+                </label>
+
+                <label className="space-y-2 text-sm text-slate-300">
+                  <span className="block text-xs uppercase tracking-[0.16em] text-slate-400">
+                    Votación
+                  </span>
+                  {isHost ? (
+                    <input
+                      type="number"
+                      min={10}
+                      value={votingDuration}
+                      onChange={(e) => setVotingDuration(Number(e.target.value))}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-900/50 px-4 py-2 text-slate-200 focus:border-sky-500 focus:outline-none"
+                    />
+                  ) : (
+                    <p className="rounded-lg border border-slate-700 bg-slate-900/50 px-4 py-2 text-slate-200">
+                      Votación: {votingDuration}s
+                    </p>
+                  )}
+                </label>
+              </div>
+            </div>
+
+            {!isHost ? (
+              <div className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
+                <p className="text-slate-300">Esperando al host...</p>
+              </div>
+            ) : null}
+
             <div className="mt-8 space-y-4">
               <div className="flex items-center justify-between gap-4">
                 <h2 className="text-sm font-medium uppercase tracking-[0.16em] text-slate-400">
@@ -826,16 +986,37 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
                   <p className="text-slate-500">Esperando a mas jugadores...</p>
                 ) : (
                   players.map((player) => (
+                    (() => {
+                      const playerIsHost = player.id === room.host_id
+                      const playerIsCurrentUser = player.id === currentPlayer?.id
+
+                      return (
                     <div
                       key={player.id}
                       className="flex items-center gap-3 rounded-lg border border-slate-700 bg-slate-900/50 px-4 py-3"
                     >
                       <span className="text-xl">🎭</span>
                       <div>
-                        <p className="font-medium text-slate-200">{player.nickname}</p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-medium text-slate-200">
+                            {player.nickname}
+                            {playerIsCurrentUser ? ' (Tú)' : ''}
+                          </p>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.18em] ${
+                              playerIsHost
+                                ? 'bg-violet-500 text-white'
+                                : 'bg-slate-800/40 text-slate-400'
+                            }`}
+                          >
+                            {playerIsHost ? 'HOST' : 'Invitado'}
+                          </span>
+                        </div>
                         <p className="text-xs text-slate-500">{player.avatar}</p>
                       </div>
                     </div>
+                      )
+                    })()
                   ))
                 )}
               </div>
@@ -845,6 +1026,9 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
           <div className="mt-8 space-y-6">
             <div className="rounded-2xl border border-sky-800/50 bg-sky-950/30 p-6">
               <p className="text-sky-300">Fase de propuestas iniciada</p>
+              {remainingSeconds !== null ? (
+                <p className="mt-2 text-sm text-slate-300">Tiempo restante: {remainingSeconds}s</p>
+              ) : null}
             </div>
 
             {isHost ? (
@@ -932,6 +1116,9 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
           <div className="mt-8 space-y-6">
             <div className="rounded-2xl border border-violet-800/50 bg-violet-950/30 p-6">
               <p className="text-violet-300">Fase de votación iniciada</p>
+              {remainingSeconds !== null ? (
+                <p className="mt-2 text-sm text-slate-300">Tiempo restante: {remainingSeconds}s</p>
+              ) : null}
             </div>
 
             {isHost ? (
@@ -1003,7 +1190,19 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
               <p className="text-emerald-300">Resultado final</p>
             </div>
 
-            {winners.length === 0 ? (
+            {finalWinner ? (
+              <div className="space-y-3 rounded-2xl border border-slate-800/50 bg-slate-900/30 p-6">
+                <h2 className="text-sm font-medium uppercase tracking-[0.16em] text-slate-400">
+                  🎯 Ganador por ruleta:
+                </h2>
+                <p className="text-xl font-semibold text-white">{finalWinner.game_name}</p>
+                <p className="text-slate-300">
+                  Propuesto por:{' '}
+                  {players.find((player) => player.id === finalWinner.player_id)?.nickname ??
+                    'Desconocido'}
+                </p>
+              </div>
+            ) : winners.length === 0 ? (
               <div className="rounded-2xl border border-slate-800/50 bg-slate-900/30 p-6">
                 <p className="text-slate-300">Aún no hay votos.</p>
               </div>
@@ -1028,9 +1227,9 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
                 })()}
               </div>
             ) : (
-              <div className="space-y-3 rounded-2xl border border-slate-800/50 bg-slate-900/30 p-6">
+              <div className="space-y-4 rounded-2xl border border-slate-800/50 bg-slate-900/30 p-6">
                 <h2 className="text-sm font-medium uppercase tracking-[0.16em] text-slate-400">
-                  Empate entre:
+                  Empate detectado
                 </h2>
                 <div className="grid gap-2">
                   {winners.map((winner) => (
@@ -1039,9 +1238,24 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
                       className="rounded-lg border border-slate-700 bg-slate-950/40 px-4 py-3 text-slate-200"
                     >
                       <p className="font-medium">{winner.game_name}</p>
+                      <p className="text-xs text-slate-500">
+                        {players.find((player) => player.id === winner.player_id)?.nickname ??
+                          'Desconocido'}
+                      </p>
                     </div>
                   ))}
                 </div>
+
+                {isHost ? (
+                  <button
+                    type="button"
+                    onClick={handleSpinRoulette}
+                    disabled={rouletteLoading}
+                    className="rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-violet-400 disabled:opacity-50"
+                  >
+                    {rouletteLoading ? 'Girando...' : 'Girar ruleta'}
+                  </button>
+                ) : null}
               </div>
             )}
           </div>
