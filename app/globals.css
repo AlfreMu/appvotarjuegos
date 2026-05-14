@@ -30,3 +30,41 @@ a {
   color: inherit;
   text-decoration: none;
 }
+
+@keyframes winnerFadeScaleIn {
+  0% {
+    opacity: 0;
+    transform: translateY(18px) scale(0.975);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes winnerGlowBreath {
+  0%,
+  100% {
+    box-shadow: 0 0 0 rgba(34, 211, 238, 0.08);
+  }
+
+  50% {
+    box-shadow: 0 0 36px rgba(34, 211, 238, 0.18);
+  }
+}
+
+.winner-screen-enter {
+  animation: winnerFadeScaleIn 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.winner-avatar-celebrate {
+  animation:
+    winnerFadeScaleIn 620ms cubic-bezier(0.22, 1, 0.36, 1) both,
+    winnerGlowBreath 4.2s ease-in-out infinite 0.7s;
+}
+
+.winner-title-reveal {
+  animation: winnerFadeScaleIn 680ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  text-shadow: 0 0 24px rgba(34, 211, 238, 0.12);
+}

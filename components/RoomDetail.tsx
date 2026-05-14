@@ -1,7 +1,11 @@
 'use client'
 
+import Image from 'next/image'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { getAvatarSrc } from '@/lib/avatarMap'
+import CreateRoomButton from '@/components/CreateRoomButton'
 import { GAME_OPTIONS } from '@/lib/games'
+import RouletteWheel from '@/components/RouletteWheel'
 import { getSupabaseBrowserClient } from '@/lib/supabaseClient'
 
 type Room = {
@@ -42,8 +46,60 @@ type RoomDetailProps = {
   roomId: string
 }
 
-const AVATARS = ['capybara', 'dog', 'cat', 'fox']
+const AVATARS = ['capybara', 'panda', 'penguin', 'cat'] as const
+type AvatarOption = (typeof AVATARS)[number]
 const TIME_ZONE_SUFFIX_PATTERN = /(Z|[+-]\d{2}:?\d{2})$/i
+
+const pickRandomWinner = <T,>(items: T[]) => {
+  if (items.length === 0) {
+    return null
+  }
+
+  const randomIndex = Math.floor(Math.random() * items.length)
+  return items[randomIndex] ?? null
+}
+
+const createBeepAudio = () => {
+  const sampleRate = 44100
+  const durationSeconds = 0.12
+  const frameCount = Math.floor(sampleRate * durationSeconds)
+  const buffer = new ArrayBuffer(44 + frameCount * 2)
+  const view = new DataView(buffer)
+
+  const writeString = (offset: number, value: string) => {
+    for (let index = 0; index < value.length; index += 1) {
+      view.setUint8(offset + index, value.charCodeAt(index))
+    }
+  }
+
+  writeString(0, 'RIFF')
+  view.setUint32(4, 36 + frameCount * 2, true)
+  writeString(8, 'WAVE')
+  writeString(12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, 1, true)
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, sampleRate * 2, true)
+  view.setUint16(32, 2, true)
+  view.setUint16(34, 16, true)
+  writeString(36, 'data')
+  view.setUint32(40, frameCount * 2, true)
+
+  for (let index = 0; index < frameCount; index += 1) {
+    const time = index / sampleRate
+    const envelope = 1 - index / frameCount
+    const sample = Math.sin(2 * Math.PI * 880 * time) * envelope
+    view.setInt16(44 + index * 2, sample * 0x4fff, true)
+  }
+
+  const blob = new Blob([buffer], { type: 'audio/wav' })
+  const url = URL.createObjectURL(blob)
+  const audio = new Audio(url)
+  audio.preload = 'auto'
+
+  return { audio, url }
+}
 
 const getStartedAtTimestamp = (startedAt: string | null) => {
   if (!startedAt) {
@@ -64,11 +120,12 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [nickname, setNickname] = useState('')
-  const [selectedAvatar, setSelectedAvatar] = useState(AVATARS[0])
+  const [selectedAvatar, setSelectedAvatar] = useState<AvatarOption>(AVATARS[0])
   const [hasJoined, setHasJoined] = useState(false)
   const [currentPlayer, setCurrentPlayer] = useState<Player | null>(null)
   const [joinLoading, setJoinLoading] = useState(false)
   const [joinError, setJoinError] = useState<string | null>(null)
+  const [copyLinkFeedback, setCopyLinkFeedback] = useState<string | null>(null)
   const [startGameLoading, setStartGameLoading] = useState(false)
   const [input, setInput] = useState('')
   const [suggestions, setSuggestions] = useState<string[]>([])
@@ -78,7 +135,7 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
   const [votes, setVotes] = useState<Vote[]>([])
   const [voteError, setVoteError] = useState<string | null>(null)
   const [voteLoading, setVoteLoading] = useState(false)
-  const [rouletteLoading, setRouletteLoading] = useState(false)
+  const [hasCompletedRouletteSpin, setHasCompletedRouletteSpin] = useState(false)
   const [proposalDuration, setProposalDuration] = useState(90)
   const [votingDuration, setVotingDuration] = useState(30)
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null)
@@ -90,6 +147,12 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
   const roomProposalDuration = room?.proposal_duration
   const roomVotingDuration = room?.voting_duration
   const transitionLockRef = useRef(false)
+  const tieResolutionLockRef = useRef(false)
+  const beepAudioRef = useRef<HTMLAudioElement | null>(null)
+  const beepAudioUrlRef = useRef<string | null>(null)
+  const lastBeepSecondRef = useRef<number | null>(null)
+  const winAudioRef = useRef<HTMLAudioElement | null>(null)
+  const hasPlayedWinSoundRef = useRef<string | null>(null)
 
   useEffect(() => {
     const fetchRoom = async () => {
@@ -157,6 +220,36 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
   }, [roomId])
 
   useEffect(() => {
+    const { audio, url } = createBeepAudio()
+
+    beepAudioRef.current = audio
+    beepAudioUrlRef.current = url
+
+    return () => {
+      beepAudioRef.current?.pause()
+      beepAudioRef.current = null
+
+      if (beepAudioUrlRef.current) {
+        URL.revokeObjectURL(beepAudioUrlRef.current)
+        beepAudioUrlRef.current = null
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    // Place the winner sound at /public/sounds/win.mp3.
+    const audio = new Audio('/sounds/win.mp3')
+    audio.preload = 'auto'
+    audio.volume = 0.9
+    winAudioRef.current = audio
+
+    return () => {
+      winAudioRef.current?.pause()
+      winAudioRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
     if (roomStatus !== 'proposing' && roomStatus !== 'voting') {
       setRemainingSeconds(null)
       return
@@ -190,6 +283,39 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
       window.clearInterval(interval)
     }
   }, [roomStatus, roomStartedAt, roomProposalDuration, roomVotingDuration])
+
+  useEffect(() => {
+    if (
+      (roomStatus !== 'proposing' && roomStatus !== 'voting') ||
+      remainingSeconds === null ||
+      remainingSeconds > 10 ||
+      remainingSeconds <= 0
+    ) {
+      lastBeepSecondRef.current = null
+      beepAudioRef.current?.pause()
+
+      if (beepAudioRef.current) {
+        beepAudioRef.current.currentTime = 0
+      }
+
+      return
+    }
+
+    if (lastBeepSecondRef.current === remainingSeconds) {
+      return
+    }
+
+    lastBeepSecondRef.current = remainingSeconds
+
+    if (!beepAudioRef.current) {
+      return
+    }
+
+    beepAudioRef.current.currentTime = 0
+    void beepAudioRef.current.play().catch(() => {
+      // Browsers can block autoplay before the first user interaction.
+    })
+  }, [remainingSeconds, roomStatus])
 
   useEffect(() => {
     if (!room || (room.status !== 'proposing' && room.status !== 'voting')) {
@@ -550,6 +676,22 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
     }
   }
 
+  const handleCopyInviteLink = async () => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    try {
+      await navigator.clipboard.writeText(window.location.href)
+      setCopyLinkFeedback('Link copiado')
+      window.setTimeout(() => setCopyLinkFeedback(null), 2000)
+    } catch (error) {
+      console.error('Error copying invite link:', error)
+      setCopyLinkFeedback('No se pudo copiar el link')
+      window.setTimeout(() => setCopyLinkFeedback(null), 2000)
+    }
+  }
+
   const handleGoToVoting = async () => {
     if (!roomId) {
       return
@@ -605,35 +747,6 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
     } finally {
       setStartGameLoading(false)
     }
-  }
-
-  const handleSpinRoulette = async () => {
-    if (!roomId || !room || !isHost || winners.length <= 1 || room.winner_proposal_id) {
-      return
-    }
-
-    setRouletteLoading(true)
-
-    setTimeout(async () => {
-      try {
-        const randomIndex = Math.floor(Math.random() * winners.length)
-        const selected = winners[randomIndex]
-
-        const supabase = getSupabaseBrowserClient()
-        const { error } = await supabase
-          .from('rooms')
-          .update({ winner_proposal_id: selected.id })
-          .eq('id', room.id)
-
-        if (error) {
-          console.error('Error updating winner:', error)
-        }
-      } catch (err) {
-        console.error('[Room] Roulette error:', err)
-      } finally {
-        setRouletteLoading(false)
-      }
-    }, 1000)
   }
 
   const handleAddProposal = async (e: FormEvent<HTMLFormElement>) => {
@@ -800,6 +913,126 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
   const finalWinner = room?.winner_proposal_id
     ? proposals.find((proposal) => proposal.id === room.winner_proposal_id) ?? null
     : null
+  const finalWinnerId = finalWinner?.id ?? null
+  const finalWinnerPlayer = finalWinner
+    ? players.find((player) => player.id === finalWinner.player_id) ?? null
+    : null
+  const winnerProposal = finalWinner
+  const directWinner = winners.length === 1 ? winners[0] : null
+  const directWinnerPlayer = directWinner
+    ? players.find((player) => player.id === directWinner.player_id) ?? null
+    : null
+  const displayedWinner = finalWinner ?? directWinner
+  const displayedWinnerPlayer = finalWinnerPlayer ?? directWinnerPlayer
+  const hasPendingTie = room?.status === 'finished' && winners.length > 1 && !finalWinner
+  const shouldRenderRoulette = room?.status === 'finished' && winners.length > 1
+  const shouldDelayWinnerReveal = shouldRenderRoulette && Boolean(finalWinner) && !hasCompletedRouletteSpin
+  const visibleFinalWinner =
+    room?.status === 'finished' && !hasPendingTie && !shouldDelayWinnerReveal ? displayedWinner : null
+  const displayedWinnerVotes = displayedWinner ? voteCounts[displayedWinner.id] ?? 0 : 0
+  const winnerVoteLabel = displayedWinnerVotes === 1 ? '1 voto' : `${displayedWinnerVotes} votos`
+  const winnerMetaText = displayedWinnerPlayer
+    ? `Propuesto por ${displayedWinnerPlayer.nickname} \u00b7 ${winnerVoteLabel}`
+    : `Propuesto por Desconocido \u00b7 ${winnerVoteLabel}`
+  const winnerTitle = '\u{1F3C6} Resultado final'
+  const activePhaseDuration =
+    room?.status === 'proposing'
+      ? room.proposal_duration
+      : room?.status === 'voting'
+        ? room.voting_duration
+        : null
+  const timerPercentage =
+    remainingSeconds !== null && activePhaseDuration
+      ? Math.max(0, Math.min(100, (remainingSeconds / activePhaseDuration) * 100))
+      : null
+  const timerBarClassName =
+    timerPercentage === null
+      ? 'bg-slate-500'
+      : timerPercentage > 50
+        ? 'bg-emerald-400'
+        : timerPercentage >= 20
+          ? 'bg-amber-400'
+          : 'bg-red-400'
+
+  useEffect(() => {
+    if (
+      !room ||
+      !isHost ||
+      room.status !== 'finished' ||
+      winners.length <= 1 ||
+      room.winner_proposal_id
+    ) {
+      tieResolutionLockRef.current = false
+      return
+    }
+
+    if (tieResolutionLockRef.current) {
+      return
+    }
+
+    const selectedWinner = pickRandomWinner(winners)
+
+    if (!selectedWinner) {
+      return
+    }
+
+    tieResolutionLockRef.current = true
+
+    const persistTieWinner = async () => {
+      try {
+        const supabase = getSupabaseBrowserClient()
+        const { data, error } = await supabase
+          .from('rooms')
+          .update({ winner_proposal_id: selectedWinner.id })
+          .eq('id', room.id)
+          .is('winner_proposal_id', null)
+          .select()
+
+        if (error) {
+          console.error('[Room] Error resolving tie winner:', error)
+          tieResolutionLockRef.current = false
+        } else if (data?.[0]) {
+          setRoom(data[0] as Room)
+        }
+      } catch (err) {
+        console.error('[Room] Tie resolution error:', err)
+        tieResolutionLockRef.current = false
+      }
+    }
+
+    void persistTieWinner()
+  }, [isHost, room, winners])
+
+  useEffect(() => {
+    if (!shouldRenderRoulette || !finalWinnerId) {
+      setHasCompletedRouletteSpin(false)
+      return
+    }
+
+    setHasCompletedRouletteSpin(false)
+  }, [finalWinnerId, roomId, shouldRenderRoulette])
+
+  useEffect(() => {
+    if (room?.status !== 'finished' || !visibleFinalWinner || hasPendingTie) {
+      return
+    }
+
+    const celebrationKey = `${roomId}:${visibleFinalWinner.id}`
+
+    if (hasPlayedWinSoundRef.current === celebrationKey) {
+      return
+    }
+
+    if (!winAudioRef.current) {
+      return
+    }
+
+    hasPlayedWinSoundRef.current = celebrationKey
+    winAudioRef.current.currentTime = 0
+    void winAudioRef.current.play().catch(() => {
+      // Browsers may still block autoplay before the first user interaction.
+    })
+  }, [hasPendingTie, room?.status, roomId, visibleFinalWinner])
 
   if (loading) {
     return (
@@ -834,67 +1067,79 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-4xl items-center px-6 py-16 sm:px-10">
       <section className="w-full rounded-3xl border border-slate-800 bg-slate-950/70 p-8 shadow-glow">
-        <p className="text-sm font-medium uppercase tracking-[0.24em] text-slate-400">Sala</p>
-        <h1 className="mt-4 text-3xl font-semibold tracking-tight text-white">{room.id}</h1>
-        <div className="mt-6 space-y-4">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-[0.16em] text-slate-400">
-              Estado
-            </p>
-            <p className="mt-1 text-lg text-slate-200">{room.status}</p>
-          </div>
-          <div>
-            <p className="text-xs font-medium uppercase tracking-[0.16em] text-slate-400">Modo</p>
-            <p className="mt-1 text-lg text-slate-200">{room.mode}</p>
-          </div>
-          <div>
-            <p className="text-xs font-medium uppercase tracking-[0.16em] text-slate-400">Rol</p>
-            <p className="mt-1 text-lg text-slate-200">
-              {isHost ? 'Eres el host' : 'Esperando al host...'}
-            </p>
-          </div>
+        <div className="space-y-2 text-center">
+          <h1 className="text-3xl font-semibold tracking-tight text-white">PlayPoll</h1>
+          <p className="text-sm text-slate-400">Elegí. Votá. Jugá.</p>
         </div>
 
         {room.status === 'waiting' ? (
           <>
+            <div className="mt-6 flex justify-center">
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={handleCopyInviteLink}
+                  className="rounded-lg border border-slate-700 bg-slate-900/50 px-4 py-2 text-sm text-slate-200 transition hover:border-slate-500 hover:bg-slate-900/80"
+                >
+                  Copiar link de la sala
+                </button>
+                {copyLinkFeedback ? (
+                  <p className="text-center text-sm text-slate-400">{copyLinkFeedback}</p>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="hidden mt-6 space-y-1 text-sm text-slate-400">
+              <p>1. Elegí un avatar</p>
+              <p>2. Escribí tu nombre</p>
+              <p>3. Esperá a que el host inicie la partida</p>
+            </div>
+
             {hasJoined ? (
-              <div className="mt-8 rounded-2xl border border-emerald-800/50 bg-emerald-950/30 p-6">
+              <div className="mx-auto mt-8 max-w-xl rounded-2xl border border-emerald-800/50 bg-emerald-950/30 p-6 text-center">
                 <p className="text-emerald-400">
                   Te has unido a la sala como: <span className="font-semibold">{nickname}</span>
                 </p>
               </div>
             ) : (
-              <form onSubmit={handleJoinRoom} className="mt-8 space-y-4">
-                <div>
-                  <label className="block text-sm font-medium uppercase tracking-[0.16em] text-slate-400">
-                    Nombre
+              <form onSubmit={handleJoinRoom} className="mx-auto mt-8 max-w-xl space-y-6">
+                <div className="space-y-3 text-center">
+                  <p className="text-base font-medium text-white">1. Escribí tu nombre.</p>
+                  <label className="block text-center text-sm font-medium uppercase tracking-[0.16em] text-slate-400">
+                    Nombre:
                   </label>
                   <input
                     type="text"
                     value={nickname}
                     onChange={(e) => setNickname(e.target.value)}
                     placeholder="Tu nombre"
-                    className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900/50 px-4 py-2 text-slate-200 placeholder-slate-500 focus:border-sky-500 focus:outline-none"
+                    className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900/50 px-4 py-3 text-slate-200 placeholder-slate-500 focus:border-sky-500 focus:outline-none"
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium uppercase tracking-[0.16em] text-slate-400">
-                    Avatar
-                  </label>
-                  <div className="mt-2 flex gap-2">
+                <div className="space-y-3 text-center">
+                  <p className="text-base font-medium text-white">2. Elegí tu animal favorito!</p>
+                  <div className="mt-2 flex flex-wrap justify-center gap-5">
                     {AVATARS.map((avatar) => (
                       <button
                         key={avatar}
                         type="button"
                         onClick={() => setSelectedAvatar(avatar)}
-                        className={`rounded-lg border-2 px-4 py-2 transition ${
+                        className={`flex h-32 w-32 items-center justify-center rounded-2xl transition-all duration-200 hover:scale-105 ${
                           selectedAvatar === avatar
-                            ? 'border-sky-500 bg-sky-500/20 text-sky-300'
-                            : 'border-slate-700 bg-slate-900/50 text-slate-300 hover:border-slate-600'
+                            ? 'border-2 border-cyan-400 bg-cyan-500/10 shadow-md'
+                            : 'border border-slate-700 bg-slate-900/50 hover:border-slate-500 hover:bg-slate-900/80'
                         }`}
+                        aria-pressed={selectedAvatar === avatar}
+                        aria-label={`Seleccionar avatar ${avatar}`}
                       >
-                        {avatar}
+                        <Image
+                          src={getAvatarSrc(avatar)}
+                          alt={avatar}
+                          width={80}
+                          height={80}
+                          className="h-20 w-20 object-contain"
+                        />
                       </button>
                     ))}
                   </div>
@@ -913,7 +1158,7 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
             )}
 
             <div
-              className={`mt-8 rounded-2xl border border-slate-800 bg-slate-900/40 p-5 ${
+              className={`mx-auto mt-8 max-w-xl rounded-2xl border border-slate-800 bg-slate-900/40 p-5 ${
                 isHost ? '' : 'hidden'
               }`}
             >
@@ -960,12 +1205,12 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
             </div>
 
             {!isHost ? (
-              <div className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
-                <p className="text-slate-300">Esperando al host...</p>
+              <div className="mx-auto mt-8 max-w-xl rounded-2xl border border-slate-800 bg-slate-900/40 p-5 text-center">
+                <p className="text-sm text-slate-400">🕒 Esperando a que el host inicie la partida</p>
               </div>
             ) : null}
 
-            <div className="mt-8 space-y-4">
+            <div className="mx-auto mt-8 max-w-xl space-y-4">
               <div className="flex items-center justify-between gap-4">
                 <h2 className="text-sm font-medium uppercase tracking-[0.16em] text-slate-400">
                   Jugadores ({players.length})
@@ -995,8 +1240,14 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
                       key={player.id}
                       className="flex items-center gap-3 rounded-lg border border-slate-700 bg-slate-900/50 px-4 py-3"
                     >
-                      <span className="text-xl">🎭</span>
-                      <div>
+                      <Image
+                        src={getAvatarSrc(player.avatar)}
+                        alt={player.avatar}
+                        width={56}
+                        height={56}
+                        className="h-14 w-14 rounded-full object-cover ring-1 ring-slate-700"
+                      />
+                      <div className="flex min-w-0 flex-1 flex-col justify-center">
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="font-medium text-slate-200">
                             {player.nickname}
@@ -1012,7 +1263,6 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
                             {playerIsHost ? 'HOST' : 'Invitado'}
                           </span>
                         </div>
-                        <p className="text-xs text-slate-500">{player.avatar}</p>
                       </div>
                     </div>
                       )
@@ -1027,7 +1277,15 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
             <div className="rounded-2xl border border-sky-800/50 bg-sky-950/30 p-6">
               <p className="text-sky-300">Fase de propuestas iniciada</p>
               {remainingSeconds !== null ? (
-                <p className="mt-2 text-sm text-slate-300">Tiempo restante: {remainingSeconds}s</p>
+                <div className="mt-3 space-y-2">
+                  <p className="text-sm text-slate-300">Tiempo restante: {remainingSeconds}s</p>
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
+                    <div
+                      className={`h-full rounded-full transition-[width] duration-700 ease-linear ${timerBarClassName}`}
+                      style={{ width: `${timerPercentage ?? 0}%` }}
+                    />
+                  </div>
+                </div>
               ) : null}
             </div>
 
@@ -1089,7 +1347,7 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
               </h2>
               <div className="grid gap-2">
                 {proposals.length === 0 ? (
-                  <p className="text-slate-500">Todavia no hay propuestas.</p>
+                  <p className="text-slate-500">Todavía no hay propuestas.</p>
                 ) : (
                   proposals.map((proposal) => {
                     const proposer = players.find((player) => player.id === proposal.player_id)
@@ -1117,7 +1375,15 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
             <div className="rounded-2xl border border-violet-800/50 bg-violet-950/30 p-6">
               <p className="text-violet-300">Fase de votación iniciada</p>
               {remainingSeconds !== null ? (
-                <p className="mt-2 text-sm text-slate-300">Tiempo restante: {remainingSeconds}s</p>
+                <div className="mt-3 space-y-2">
+                  <p className="text-sm text-slate-300">Tiempo restante: {remainingSeconds}s</p>
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
+                    <div
+                      className={`h-full rounded-full transition-[width] duration-700 ease-linear ${timerBarClassName}`}
+                      style={{ width: `${timerPercentage ?? 0}%` }}
+                    />
+                  </div>
+                </div>
               ) : null}
             </div>
 
@@ -1140,7 +1406,7 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
               </h2>
               <div className="grid gap-2">
                 {proposals.length === 0 ? (
-                  <p className="text-slate-500">Todavia no hay propuestas para votar.</p>
+                  <p className="text-slate-500">Todavía no hay propuestas para votar.</p>
                 ) : (
                   proposals.map((proposal) => {
                     const isSelected = selectedProposalId === proposal.id
@@ -1186,30 +1452,56 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
           </div>
         ) : room.status === 'finished' ? (
           <div className="mt-8 space-y-6">
-            <div className="rounded-2xl border border-emerald-800/50 bg-emerald-950/30 p-6">
+            <div className="hidden rounded-2xl border border-emerald-800/50 bg-emerald-950/30 p-6">
               <p className="text-emerald-300">Resultado final</p>
             </div>
 
-            {finalWinner ? (
-              <div className="space-y-3 rounded-2xl border border-slate-800/50 bg-slate-900/30 p-6">
-                <h2 className="text-sm font-medium uppercase tracking-[0.16em] text-slate-400">
-                  🎯 Ganador por ruleta:
-                </h2>
-                <p className="text-xl font-semibold text-white">{finalWinner.game_name}</p>
-                <p className="text-slate-300">
-                  Propuesto por:{' '}
-                  {players.find((player) => player.id === finalWinner.player_id)?.nickname ??
-                    'Desconocido'}
-                </p>
+            {shouldRenderRoulette ? (
+              <div className="rounded-2xl border border-slate-800/50 bg-slate-900/30 p-6">
+                <RouletteWheel
+                  proposals={winners}
+                  winnerProposal={winnerProposal}
+                  onSpinComplete={() => setHasCompletedRouletteSpin(true)}
+                />
+              </div>
+            ) : null}
+
+            {finalWinner && visibleFinalWinner ? (
+              <div className="winner-screen-enter space-y-6 overflow-hidden rounded-[2rem] border border-cyan-500/15 bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.16),_transparent_42%),linear-gradient(180deg,rgba(10,18,35,0.92),rgba(7,11,26,0.98))] p-8 text-center shadow-glow sm:p-10">
+                <div className="space-y-3">
+                  <h2 className="text-sm font-semibold tracking-[0.2em] text-cyan-300/90">
+                    {winnerTitle}
+                  </h2>
+                  <p className="text-sm text-slate-400">{'\u{1F3AF} Desempate por ruleta'}</p>
+                </div>
+                <Image
+                  src={getAvatarSrc(finalWinnerPlayer?.avatar)}
+                  alt={finalWinnerPlayer?.nickname ?? 'Jugador ganador'}
+                  width={128}
+                  height={128}
+                  className="winner-avatar-celebrate mx-auto h-32 w-32 rounded-full object-cover ring-4 ring-cyan-400/50 shadow-[0_0_40px_rgba(34,211,238,0.18)] sm:h-36 sm:w-36"
+                />
+                <div className="space-y-3">
+                  <p className="winner-title-reveal text-4xl font-bold tracking-tight text-white sm:text-5xl">
+                    {finalWinner.game_name}
+                  </p>
+                  <p className="mx-auto max-w-2xl text-sm text-slate-300 sm:text-base">
+                    {winnerMetaText}
+                  </p>
+                </div>
+
+                <div className="flex justify-center pt-2">
+                  <CreateRoomButton className="min-w-[220px] px-6 py-3.5 text-base" />
+                </div>
               </div>
             ) : winners.length === 0 ? (
               <div className="rounded-2xl border border-slate-800/50 bg-slate-900/30 p-6">
                 <p className="text-slate-300">Aún no hay votos.</p>
               </div>
             ) : winners.length === 1 ? (
-              <div className="space-y-3 rounded-2xl border border-slate-800/50 bg-slate-900/30 p-6">
-                <h2 className="text-sm font-medium uppercase tracking-[0.16em] text-slate-400">
-                  Ganador:
+              <div className="winner-screen-enter space-y-6 overflow-hidden rounded-[2rem] border border-cyan-500/15 bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.16),_transparent_42%),linear-gradient(180deg,rgba(10,18,35,0.92),rgba(7,11,26,0.98))] p-8 text-center shadow-glow sm:p-10">
+                <h2 className="text-sm font-semibold tracking-[0.2em] text-cyan-300/90">
+                  {winnerTitle}
                 </h2>
                 {(() => {
                   const winner = winners[0]
@@ -1217,11 +1509,25 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
 
                   return (
                     <>
-                      <p className="text-xl font-semibold text-white">{winner.game_name}</p>
-                      <p className="text-slate-300">
-                        Propuesto por: {proposer?.nickname ?? 'Desconocido'}
-                      </p>
-                      <p className="text-slate-300">Votos: {voteCounts[winner.id] ?? 0}</p>
+                      <Image
+                        src={getAvatarSrc(proposer?.avatar)}
+                        alt={proposer?.nickname ?? 'Jugador ganador'}
+                        width={128}
+                        height={128}
+                        className="winner-avatar-celebrate mx-auto h-32 w-32 rounded-full object-cover ring-4 ring-cyan-400/50 shadow-[0_0_40px_rgba(34,211,238,0.18)] sm:h-36 sm:w-36"
+                      />
+                      <div className="space-y-3">
+                        <p className="winner-title-reveal text-4xl font-bold tracking-tight text-white sm:text-5xl">
+                          {winner.game_name}
+                        </p>
+                        <p className="mx-auto max-w-2xl text-sm text-slate-300 sm:text-base">
+                          {winnerMetaText}
+                        </p>
+                      </div>
+
+                      <div className="flex justify-center pt-2">
+                        <CreateRoomButton className="min-w-[220px] px-6 py-3.5 text-base" />
+                      </div>
                     </>
                   )
                 })()}
@@ -1231,37 +1537,17 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
                 <h2 className="text-sm font-medium uppercase tracking-[0.16em] text-slate-400">
                   Empate detectado
                 </h2>
-                <div className="grid gap-2">
-                  {winners.map((winner) => (
-                    <div
-                      key={winner.id}
-                      className="rounded-lg border border-slate-700 bg-slate-950/40 px-4 py-3 text-slate-200"
-                    >
-                      <p className="font-medium">{winner.game_name}</p>
-                      <p className="text-xs text-slate-500">
-                        {players.find((player) => player.id === winner.player_id)?.nickname ??
-                          'Desconocido'}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-
-                {isHost ? (
-                  <button
-                    type="button"
-                    onClick={handleSpinRoulette}
-                    disabled={rouletteLoading}
-                    className="rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-violet-400 disabled:opacity-50"
-                  >
-                    {rouletteLoading ? 'Girando...' : 'Girar ruleta'}
-                  </button>
-                ) : null}
+                <p className="text-sm text-slate-300">
+                  {finalWinner
+                    ? 'La ruleta está resolviendo el desempate con el ganador ya definido en la sala.'
+                    : 'Esperando a que se defina el ganador del desempate para iniciar la ruleta.'}
+                </p>
               </div>
             )}
           </div>
         ) : (
           <div className="mt-8 rounded-2xl border border-slate-800/50 bg-slate-900/30 p-6">
-            <p className="text-slate-300">Estado de la sala: {room.status}</p>
+            <p className="text-slate-300">La sala se está actualizando.</p>
           </div>
         )}
       </section>
