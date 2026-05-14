@@ -135,7 +135,9 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
   const [votes, setVotes] = useState<Vote[]>([])
   const [voteError, setVoteError] = useState<string | null>(null)
   const [voteLoading, setVoteLoading] = useState(false)
-  const [hasCompletedRouletteSpin, setHasCompletedRouletteSpin] = useState(false)
+  const [showRoulette, setShowRoulette] = useState(false)
+  const [showResult, setShowResult] = useState(false)
+  const [spinFinished, setSpinFinished] = useState(false)
   const [proposalDuration, setProposalDuration] = useState(90)
   const [votingDuration, setVotingDuration] = useState(30)
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null)
@@ -913,7 +915,6 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
   const finalWinner = room?.winner_proposal_id
     ? proposals.find((proposal) => proposal.id === room.winner_proposal_id) ?? null
     : null
-  const finalWinnerId = finalWinner?.id ?? null
   const finalWinnerPlayer = finalWinner
     ? players.find((player) => player.id === finalWinner.player_id) ?? null
     : null
@@ -926,9 +927,12 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
   const displayedWinnerPlayer = finalWinnerPlayer ?? directWinnerPlayer
   const hasPendingTie = room?.status === 'finished' && winners.length > 1 && !finalWinner
   const shouldRenderRoulette = room?.status === 'finished' && winners.length > 1
-  const shouldDelayWinnerReveal = shouldRenderRoulette && Boolean(finalWinner) && !hasCompletedRouletteSpin
   const visibleFinalWinner =
-    room?.status === 'finished' && !hasPendingTie && !shouldDelayWinnerReveal ? displayedWinner : null
+    room?.status === 'finished' &&
+    !hasPendingTie &&
+    (shouldRenderRoulette ? showResult : Boolean(displayedWinner))
+      ? displayedWinner
+      : null
   const displayedWinnerVotes = displayedWinner ? voteCounts[displayedWinner.id] ?? 0 : 0
   const winnerVoteLabel = displayedWinnerVotes === 1 ? '1 voto' : `${displayedWinnerVotes} votos`
   const winnerMetaText = displayedWinnerPlayer
@@ -1004,13 +1008,43 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
   }, [isHost, room, winners])
 
   useEffect(() => {
-    if (!shouldRenderRoulette || !finalWinnerId) {
-      setHasCompletedRouletteSpin(false)
+    if (room?.status !== 'finished') {
+      setShowRoulette(false)
+      setShowResult(false)
+      setSpinFinished(false)
       return
     }
 
-    setHasCompletedRouletteSpin(false)
-  }, [finalWinnerId, roomId, shouldRenderRoulette])
+    if (shouldRenderRoulette) {
+      setShowRoulette(true)
+      setShowResult(false)
+      setSpinFinished(false)
+      return
+    }
+
+    setShowRoulette(false)
+    setShowResult(Boolean(displayedWinner))
+    setSpinFinished(false)
+  }, [displayedWinner, room?.status, roomId, shouldRenderRoulette])
+
+  useEffect(() => {
+    if (!shouldRenderRoulette || !spinFinished) {
+      return
+    }
+
+    const hideRouletteTimer = window.setTimeout(() => {
+      setShowRoulette(false)
+    }, 500)
+
+    const revealResultTimer = window.setTimeout(() => {
+      setShowResult(true)
+    }, 700)
+
+    return () => {
+      window.clearTimeout(hideRouletteTimer)
+      window.clearTimeout(revealResultTimer)
+    }
+  }, [spinFinished, shouldRenderRoulette])
 
   useEffect(() => {
     if (room?.status !== 'finished' || !visibleFinalWinner || hasPendingTie) {
@@ -1456,18 +1490,22 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
               <p className="text-emerald-300">Resultado final</p>
             </div>
 
-            {shouldRenderRoulette ? (
-              <div className="rounded-2xl border border-slate-800/50 bg-slate-900/30 p-6">
+            {shouldRenderRoulette && !showResult ? (
+              <div
+                className={`rounded-2xl border border-slate-800/50 bg-slate-900/30 p-6 transition-opacity duration-300 ${
+                  showRoulette ? 'opacity-100' : 'opacity-0'
+                }`}
+              >
                 <RouletteWheel
                   proposals={winners}
                   winnerProposal={winnerProposal}
-                  onSpinComplete={() => setHasCompletedRouletteSpin(true)}
+                  onSpinComplete={() => setSpinFinished(true)}
                 />
               </div>
             ) : null}
 
             {finalWinner && visibleFinalWinner ? (
-              <div className="winner-screen-enter space-y-6 overflow-hidden rounded-[2rem] border border-cyan-500/15 bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.16),_transparent_42%),linear-gradient(180deg,rgba(10,18,35,0.92),rgba(7,11,26,0.98))] p-8 text-center shadow-glow sm:p-10">
+              <div className="winner-screen-enter space-y-6 overflow-hidden rounded-[2rem] border border-cyan-500/15 bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.16),_transparent_42%),linear-gradient(180deg,rgba(10,18,35,0.92),rgba(7,11,26,0.98))] p-8 text-center opacity-100 scale-100 shadow-glow transition-all duration-500 sm:p-10">
                 <div className="space-y-3">
                   <h2 className="text-sm font-semibold tracking-[0.2em] text-cyan-300/90">
                     {winnerTitle}
@@ -1499,7 +1537,7 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
                 <p className="text-slate-300">Aún no hay votos.</p>
               </div>
             ) : winners.length === 1 ? (
-              <div className="winner-screen-enter space-y-6 overflow-hidden rounded-[2rem] border border-cyan-500/15 bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.16),_transparent_42%),linear-gradient(180deg,rgba(10,18,35,0.92),rgba(7,11,26,0.98))] p-8 text-center shadow-glow sm:p-10">
+              <div className="winner-screen-enter space-y-6 overflow-hidden rounded-[2rem] border border-cyan-500/15 bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.16),_transparent_42%),linear-gradient(180deg,rgba(10,18,35,0.92),rgba(7,11,26,0.98))] p-8 text-center opacity-100 scale-100 shadow-glow transition-all duration-500 sm:p-10">
                 <h2 className="text-sm font-semibold tracking-[0.2em] text-cyan-300/90">
                   {winnerTitle}
                 </h2>
