@@ -50,6 +50,8 @@ const AVATARS = ['capybara', 'panda', 'penguin', 'cat'] as const
 type AvatarOption = (typeof AVATARS)[number]
 const TIME_ZONE_SUFFIX_PATTERN = /(Z|[+-]\d{2}:?\d{2})$/i
 
+const normalizeGameName = (text: string) => text.trim().toLowerCase()
+
 const pickRandomWinner = <T,>(items: T[]) => {
   if (items.length === 0) {
     return null
@@ -765,6 +767,16 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
       return
     }
 
+    const normalizedName = normalizeGameName(trimmedName)
+    const alreadyExistsInRoom = proposals.some(
+      (proposal) => normalizeGameName(proposal.game_name) === normalizedName,
+    )
+
+    if (alreadyExistsInRoom) {
+      setProposalError('Este juego ya fue propuesto')
+      return
+    }
+
     const playerProposalsCount = proposals.filter(
       (proposal) => proposal.player_id === currentPlayer.id,
     ).length
@@ -779,7 +791,32 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
 
     try {
       const supabase = getSupabaseBrowserClient()
-      const normalizedName = trimmedName.toLowerCase()
+      const { data: existingProposals, error: existingProposalsError } = await supabase
+        .from('proposals')
+        .select('game_name, normalized_name')
+        .eq('room_id', roomId)
+
+      if (existingProposalsError) {
+        setProposalError('No se pudieron validar las propuestas existentes')
+        console.error(
+          '[Proposals] Error validating existing proposals:',
+          existingProposalsError,
+        )
+        return
+      }
+
+      const alreadyExistsBeforeInsert =
+        existingProposals?.some((proposal) => {
+          const proposalNormalizedName =
+            proposal.normalized_name || normalizeGameName(proposal.game_name)
+
+          return proposalNormalizedName === normalizedName
+        }) ?? false
+
+      if (alreadyExistsBeforeInsert) {
+        setProposalError('Este juego ya fue propuesto')
+        return
+      }
 
       const { data, error: dbError } = await supabase
         .from('proposals')
@@ -823,8 +860,9 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
 
   const handleProposalInputChange = (value: string) => {
     setInput(value)
+    setProposalError(null)
 
-    const normalizedValue = value.trim().toLowerCase()
+    const normalizedValue = normalizeGameName(value)
 
     if (!normalizedValue) {
       setSuggestions([])
@@ -841,6 +879,7 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
   const handleSelectSuggestion = (selectedGame: string) => {
     setInput(selectedGame)
     setSuggestions([])
+    setProposalError(null)
   }
 
   const handleVoteProposal = async (proposalId: string) => {
@@ -919,6 +958,13 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
     ? players.find((player) => player.id === finalWinner.player_id) ?? null
     : null
   const winnerProposal = finalWinner
+  const rouletteOptions = winners.map((winner) => ({
+    id: winner.id,
+    label: winner.game_name,
+  }))
+  const rouletteWinnerIndex = winnerProposal
+    ? winners.findIndex((winner) => winner.id === winnerProposal.id)
+    : -1
   const directWinner = winners.length === 1 ? winners[0] : null
   const directWinnerPlayer = directWinner
     ? players.find((player) => player.id === directWinner.player_id) ?? null
@@ -1497,9 +1543,10 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
                 }`}
               >
                 <RouletteWheel
-                  proposals={winners}
-                  winnerProposal={winnerProposal}
-                  onSpinComplete={() => setSpinFinished(true)}
+                  options={rouletteOptions}
+                  winnerIndex={rouletteWinnerIndex}
+                  shouldSpin={showRoulette && rouletteWinnerIndex >= 0}
+                  onFinish={() => setSpinFinished(true)}
                 />
               </div>
             ) : null}
