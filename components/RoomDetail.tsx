@@ -1147,8 +1147,17 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-4xl items-center px-6 py-16 sm:px-10">
       <section className="w-full rounded-3xl border border-slate-800 bg-slate-950/70 p-8 shadow-glow">
-        <div className="space-y-2 text-center">
-          <h1 className="text-3xl font-semibold tracking-tight text-white">PlayPoll</h1>
+        <div className="space-y-3 text-center">
+          <div className="flex justify-center">
+            <Image
+              src="/logos/textofondo.png?v=20260514-1733"
+              alt="PlayPoll"
+              width={360}
+              height={118}
+              priority
+              className="h-auto w-full max-w-[260px] sm:max-w-[320px]"
+            />
+          </div>
           <p className="text-sm text-slate-400">Elegí. Votá. Jugá.</p>
         </div>
 
