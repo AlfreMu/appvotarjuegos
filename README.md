@@ -1,23 +1,26 @@
-# Viciemos
+# PlayPoll
 
-> Una app en tiempo real para armar rooms, proponer juegos, votar y cerrar la partida sin refresh.
+> Una app en tiempo real para decidir qué jugar con amigos en pocos minutos.
+
+PlayPoll permite crear una sala, compartir un link, proponer juegos, votar en vivo y resolver empates con una ruleta. La idea es simple: pasar más rápido de “¿qué jugamos?” a jugar.
 
 ## Qué hace
 
-- Crea salas para jugar con amigos.
-- Los jugadores entran en tiempo real.
-- Se proponen juegos con autocomplete.
-- Se vota en vivo y se muestran porcentajes.
-- Un host controla el flujo de la partida.
+- Crea salas e invita jugadores con un link
+- Permite elegir nombre y avatar
+- Recibe propuestas de juegos sin duplicados
+- Actualiza votos en tiempo real
+- Resuelve empates y muestra un ganador final
 
 ## Stack
 
 - Next.js 14
+- React
 - TypeScript
 - Tailwind CSS
-- Supabase Realtime
+- Supabase
 
-## Arranque rápido
+## Desarrollo local
 
 ```bash
 npm install
@@ -26,13 +29,19 @@ npm run dev
 
 ## Variables de entorno
 
-Creá un `.env.local` con:
+Creá un archivo `.env.local` con:
 
 ```env
 NEXT_PUBLIC_SUPABASE_URL=tu_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=tu_anon_key
 ```
 
-## Estado
+## Estado actual
 
-Proyecto en desarrollo. La base ya está lista para seguir sumando lógica de juego.
+PlayPoll está en una versión MVP funcional. Ya permite crear salas, proponer juegos, votar, desempatar y cerrar una partida completa.
+
+## Próximos pasos
+
+- Pulir todavía más la experiencia visual de la ruleta
+- Mejorar observabilidad y despliegue
+- Sumar CI/CD e infraestructura para portfolio DevOps
