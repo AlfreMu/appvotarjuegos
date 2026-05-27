@@ -52,15 +52,6 @@ const TIME_ZONE_SUFFIX_PATTERN = /(Z|[+-]\d{2}:?\d{2})$/i
 
 const normalizeGameName = (text: string) => text.trim().toLowerCase()
 
-const pickRandomWinner = <T,>(items: T[]) => {
-  if (items.length === 0) {
-    return null
-  }
-
-  const randomIndex = Math.floor(Math.random() * items.length)
-  return items[randomIndex] ?? null
-}
-
 const createBeepAudio = () => {
   const sampleRate = 44100
   const durationSeconds = 0.12
@@ -1020,7 +1011,22 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
       return
     }
 
-    const selectedWinner = pickRandomWinner(winners)
+    const tiedProposals = winners
+
+    console.log(
+      'Tie proposals:',
+      tiedProposals.map((proposal) => ({
+        id: proposal.id,
+        game_name: proposal.game_name,
+      })),
+    )
+    console.log('Tie count:', tiedProposals.length)
+
+    const randomIndex = Math.floor(Math.random() * tiedProposals.length)
+    const selectedWinner = tiedProposals[randomIndex] ?? null
+
+    console.log('Random index selected:', randomIndex)
+    console.log('Winner selected:', selectedWinner)
 
     if (!selectedWinner) {
       return
