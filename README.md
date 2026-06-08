@@ -36,6 +36,29 @@ NEXT_PUBLIC_SUPABASE_URL=tu_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=tu_anon_key
 ```
 
+## Docker
+
+Build de la imagen:
+
+```bash
+docker build \
+  --build-arg NEXT_PUBLIC_SUPABASE_URL=tu_url \
+  --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY=tu_anon_key \
+  -t playpoll:local .
+```
+
+Ejecucion del contenedor:
+
+```bash
+docker run --rm -p 3000:3000 playpoll:local
+```
+
+Notas:
+
+- El contenedor expone el puerto `3000`.
+- Las variables `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_ANON_KEY` se inyectan en build.
+- El despliegue productivo principal sigue estando en Vercel.
+
 ## Estado actual
 
 PlayPoll está en una versión MVP funcional. Ya permite crear salas, proponer juegos, votar, desempatar y cerrar una partida completa.
