@@ -1,24 +1,65 @@
 # PlayPoll
 
-> Una app en tiempo real para decidir qué jugar con amigos en pocos minutos.
+> Una app en tiempo real para decidir que jugar con amigos en pocos minutos.
 
-PlayPoll permite crear una sala, compartir un link, proponer juegos, votar en vivo y resolver empates con una ruleta. La idea es simple: pasar más rápido de “¿qué jugamos?” a jugar.
+PlayPoll es un MVP funcional orientado a sesiones casuales entre amigos: una persona crea una sala, comparte el link, cada jugador propone opciones, todos votan en vivo y, si hay empate, la ruleta define el ganador.
 
-## Qué hace
+El proyecto nacio como una app fullstack liviana con foco en experiencia realtime. Actualmente tambien se esta profesionalizando desde el lado DevOps para mostrar una evolucion clara de producto + operacion.
 
-- Crea salas e invita jugadores con un link
-- Permite elegir nombre y avatar
+## Demo y estado actual
+
+- Deploy principal: Vercel
+- Backend realtime y persistencia: Supabase
+- Estado del producto: MVP funcional y estable
+- Estado DevOps actual: Docker foundation cerrada, documentacion en progreso
+
+## Que hace
+
+- Crea salas y genera links para invitar jugadores
+- Permite ingresar con nickname y avatar
 - Recibe propuestas de juegos sin duplicados
-- Actualiza votos en tiempo real
-- Resuelve empates y muestra un ganador final
+- Actualiza jugadores, propuestas y votos en tiempo real
+- Resuelve empates con una ruleta final
 
 ## Stack
 
 - Next.js 14
-- React
+- React 18
 - TypeScript
 - Tailwind CSS
 - Supabase
+- Docker
+
+## Arquitectura actual
+
+```mermaid
+flowchart LR
+    U["Usuarios"] --> V["Frontend Next.js en Vercel"]
+    V --> S["Supabase"]
+    S --> DB["Postgres"]
+    S --> RT["Realtime subscriptions"]
+    V --> D["Docker image para entorno portable"]
+```
+
+### Como esta organizado hoy
+
+- `app/`: rutas y layout de Next.js App Router
+- `components/`: UI y logica cliente de las salas
+- `lib/`: cliente de Supabase y utilidades
+- `public/`: imagenes, favicons, avatars y sonidos
+
+### Nota arquitectonica importante
+
+Hoy la logica critica del flujo de juego sigue en cliente porque PlayPoll esta priorizando simplicidad de MVP. La linea de trabajo actual no busca re-arquitecturar eso todavia, sino mejorar entrega, portabilidad, trazabilidad y calidad operativa del repositorio.
+
+## Variables de entorno
+
+Crea un archivo `.env.local` a partir de `.env.example`:
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=tu_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=tu_anon_key
+```
 
 ## Desarrollo local
 
@@ -27,18 +68,18 @@ npm install
 npm run dev
 ```
 
-## Variables de entorno
-
-Creá un archivo `.env.local` con:
-
-```env
-NEXT_PUBLIC_SUPABASE_URL=tu_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=tu_anon_key
-```
+La app queda disponible en `http://localhost:3000`.
 
 ## Docker
 
-Build de la imagen:
+La imagen usa:
+
+- build multi-stage
+- `next build` con salida `standalone`
+- usuario no root en runtime
+- `sharp` instalado para compatibilidad con el build de Next.js
+
+### Build de imagen
 
 ```bash
 docker build \
@@ -47,24 +88,53 @@ docker build \
   -t playpoll:local .
 ```
 
-Ejecucion del contenedor:
+### Ejecutar contenedor
 
 ```bash
 docker run --rm -p 3000:3000 playpoll:local
 ```
 
-Notas:
+### Notas de ejecucion
 
-- El contenedor expone el puerto `3000`.
-- Las variables `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_ANON_KEY` se inyectan en build.
-- El despliegue productivo principal sigue estando en Vercel.
+- El contenedor expone el puerto `3000`
+- Las variables `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_ANON_KEY` se inyectan en build
+- El despliegue productivo principal sigue estando en Vercel
 
-## Estado actual
+## Estrategia de despliegue actual
 
-PlayPoll está en una versión MVP funcional. Ya permite crear salas, proponer juegos, votar, desempatar y cerrar una partida completa.
+- Desarrollo local con Node.js
+- Validacion de portabilidad con Docker
+- Deploy productivo serverless con Vercel
+- Servicios de datos y realtime delegados a Supabase
 
-## Próximos pasos
+Esta combinacion es deliberada: permite mantener bajo el costo operativo del MVP mientras se mejora el flujo de entrega del repositorio.
 
-- Pulir todavía más la experiencia visual de la ruleta
-- Mejorar observabilidad y despliegue
-- Sumar CI/CD e infraestructura para portfolio DevOps
+## Flujo de trabajo del repo
+
+- `main` representa la linea estable
+- las mejoras se trabajan por fases chicas y controladas
+- cada fase busca una PR acotada y facil de defender
+- primero se valida localmente, despues se sube
+
+## Roadmap DevOps
+
+Fases previstas:
+
+1. Docker foundation
+2. Documentacion Docker y arquitectura
+3. CI con GitHub Actions
+4. Branch protection
+5. Health endpoint y Docker `HEALTHCHECK`
+6. Dependabot y CodeQL
+7. Smoke test minimo
+8. Documentacion de operacion y observabilidad
+
+## Objetivo de portfolio
+
+Este repo no busca aparentar complejidad artificial. La idea es mostrar decisiones realistas sobre un producto pequeno:
+
+- containerizacion portable
+- automatizacion gradual
+- seguridad incremental
+- documentacion operativa
+- buenas practicas de entrega sin sobreingenieria
