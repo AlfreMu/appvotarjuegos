@@ -98,6 +98,8 @@ docker run --rm -p 3000:3000 playpoll:local
 
 - El contenedor expone el puerto `3000`
 - Las variables `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_ANON_KEY` se inyectan en build
+- El endpoint `GET /api/health` devuelve una señal minima de salud del proceso web
+- El `HEALTHCHECK` del contenedor consulta `http://127.0.0.1:3000/api/health`
 - El despliegue productivo principal sigue estando en Vercel
 
 ## Estrategia de despliegue actual
