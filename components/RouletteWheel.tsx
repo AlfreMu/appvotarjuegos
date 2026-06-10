@@ -14,11 +14,11 @@ type Props = {
   onFinish: () => void
 }
 
-const SEGMENT_COLORS = ['#06b6d4', '#2563eb', '#0ea5e9', '#0891b2']
-const SVG_SIZE = 200
+const SEGMENT_COLORS = ['#22d3ee', '#10b981', '#f59e0b', '#f43f5e', '#38bdf8', '#6366f1']
+const SVG_SIZE = 220
 const CENTER = SVG_SIZE / 2
-const RADIUS = 90
-const INNER_RADIUS = 26
+const RADIUS = 98
+const INNER_RADIUS = 29
 const SPIN_DURATION_MS = 4500
 
 const polarToCartesian = (cx: number, cy: number, radius: number, angleDegrees: number) => {
@@ -76,7 +76,7 @@ export default function RouletteWheel({ options, winnerIndex, shouldSpin, onFini
       const startAngle = -90 + index * segmentAngle
       const endAngle = startAngle + segmentAngle
       const middleAngle = startAngle + segmentAngle / 2
-      const labelRadius = 61
+      const labelRadius = 68
       const labelPosition = polarToCartesian(CENTER, CENTER, labelRadius, middleAngle)
       const shouldFlipText = middleAngle > 90 && middleAngle < 270
       const textRotation = shouldFlipText ? middleAngle + 180 : middleAngle
@@ -89,6 +89,26 @@ export default function RouletteWheel({ options, winnerIndex, shouldSpin, onFini
         textX: labelPosition.x,
         textY: labelPosition.y,
         textRotation,
+      }
+    })
+  }, [options, segmentAngle])
+
+  const separators = useMemo(() => {
+    if (options.length === 0) {
+      return []
+    }
+
+    return options.map((option, index) => {
+      const angle = -90 + index * segmentAngle
+      const start = polarToCartesian(CENTER, CENTER, INNER_RADIUS + 3, angle)
+      const end = polarToCartesian(CENTER, CENTER, RADIUS - 3, angle)
+
+      return {
+        id: option.id,
+        x1: start.x,
+        y1: start.y,
+        x2: end.x,
+        y2: end.y,
       }
     })
   }, [options, segmentAngle])
@@ -138,15 +158,17 @@ export default function RouletteWheel({ options, winnerIndex, shouldSpin, onFini
   }
 
   return (
-    <div className="flex w-full items-center justify-center overflow-visible">
-      <div className="relative flex w-[280px] items-center justify-center rounded-[28px] border border-white/10 bg-[#0b1220] p-5 ring-1 ring-white/10 shadow-[0_18px_60px_rgba(2,6,23,0.55)] sm:w-[380px] sm:p-7">
-        <div className="pointer-events-none absolute inset-0 rounded-[28px] bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.12),_transparent_34%),radial-gradient(circle_at_bottom,_rgba(37,99,235,0.16),_transparent_40%)]" />
-        <div className="pointer-events-none absolute left-1/2 top-3 z-30 -translate-x-1/2 drop-shadow-[0_0_16px_rgba(34,211,238,0.45)]">
-          <div className="h-0 w-0 border-l-[16px] border-r-[16px] border-t-[30px] border-l-transparent border-r-transparent border-t-cyan-300 sm:border-l-[18px] sm:border-r-[18px] sm:border-t-[34px]" />
+    <div className="flex w-full items-center justify-center overflow-visible px-2">
+      <div className="relative flex w-full max-w-[340px] items-center justify-center rounded-[30px] border border-cyan-200/10 bg-[linear-gradient(145deg,rgba(15,23,42,0.96),rgba(3,7,18,0.98))] p-4 shadow-[0_24px_70px_rgba(2,6,23,0.62)] ring-1 ring-white/10 sm:max-w-[430px] sm:p-7">
+        <div className="pointer-events-none absolute inset-0 rounded-[30px] bg-[radial-gradient(circle_at_50%_0%,rgba(34,211,238,0.18),transparent_34%),radial-gradient(circle_at_50%_100%,rgba(16,185,129,0.11),transparent_38%)]" />
+        <div className="pointer-events-none absolute inset-3 rounded-[24px] border border-white/5" />
+        <div className="pointer-events-none absolute left-1/2 top-2 z-30 -translate-x-1/2 drop-shadow-[0_0_18px_rgba(34,211,238,0.55)] sm:top-3">
+          <div className="h-0 w-0 border-l-[15px] border-r-[15px] border-t-[28px] border-l-transparent border-r-transparent border-t-cyan-200 sm:border-l-[18px] sm:border-r-[18px] sm:border-t-[34px]" />
+          <div className="mx-auto -mt-[27px] h-2 w-2 rounded-full bg-white/85 sm:-mt-[32px]" />
         </div>
 
         <div
-          className={`relative z-10 h-[280px] w-[280px] overflow-visible transition duration-300 sm:h-[380px] sm:w-[380px] ${
+          className={`relative z-10 aspect-square w-full max-w-[300px] overflow-visible transition duration-300 sm:max-w-[360px] ${
             isSpinning
               ? 'scale-[1.03] cursor-wait'
               : 'scale-100'
@@ -168,20 +190,32 @@ export default function RouletteWheel({ options, winnerIndex, shouldSpin, onFini
               role="img"
             >
               <defs>
-                <radialGradient id="wheelBase" cx="50%" cy="50%" r="60%">
-                  <stop offset="0%" stopColor="#14213c" />
-                  <stop offset="100%" stopColor="#08111f" />
+                <radialGradient id="wheelBase" cx="50%" cy="50%" r="64%">
+                  <stop offset="0%" stopColor="#334155" />
+                  <stop offset="58%" stopColor="#111827" />
+                  <stop offset="100%" stopColor="#020617" />
                 </radialGradient>
+                <radialGradient id="centerCap" cx="42%" cy="35%" r="70%">
+                  <stop offset="0%" stopColor="#e0f2fe" />
+                  <stop offset="45%" stopColor="#38bdf8" />
+                  <stop offset="100%" stopColor="#0f172a" />
+                </radialGradient>
+                <linearGradient id="wheelSheen" x1="20%" x2="80%" y1="0%" y2="100%">
+                  <stop offset="0%" stopColor="#ffffff" stopOpacity="0.28" />
+                  <stop offset="42%" stopColor="#ffffff" stopOpacity="0.04" />
+                  <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
+                </linearGradient>
               </defs>
 
-              <circle cx={CENTER} cy={CENTER} r={RADIUS + 3} fill="url(#wheelBase)" />
+              <circle cx={CENTER} cy={CENTER} r={RADIUS + 9} fill="#020617" />
+              <circle cx={CENTER} cy={CENTER} r={RADIUS + 6} fill="url(#wheelBase)" />
               <circle
                 cx={CENTER}
                 cy={CENTER}
-                r={RADIUS + 1}
+                r={RADIUS + 3}
                 fill="none"
-                stroke="rgba(255,255,255,0.1)"
-                strokeWidth="2"
+                stroke="rgba(226,232,240,0.26)"
+                strokeWidth="3"
               />
 
               {slices.map((slice) => (
@@ -190,16 +224,15 @@ export default function RouletteWheel({ options, winnerIndex, shouldSpin, onFini
                     d={slice.path}
                     fill={slice.color}
                     stroke="rgba(8,17,31,0.92)"
-                    strokeWidth="1.8"
+                    strokeWidth="1.4"
                   />
                   <text
                     x={slice.textX}
                     y={slice.textY}
                     fill="#e5e7eb"
                     fontFamily="Arial, sans-serif"
-                    fontSize="8"
+                    fontSize="7.4"
                     fontWeight="700"
-                    letterSpacing="0.2"
                     textAnchor="middle"
                     dominantBaseline="middle"
                     transform={`rotate(${slice.textRotation} ${slice.textX} ${slice.textY})`}
@@ -209,13 +242,40 @@ export default function RouletteWheel({ options, winnerIndex, shouldSpin, onFini
                 </g>
               ))}
 
+              {separators.map((separator) => (
+                <line
+                  key={separator.id}
+                  x1={separator.x1}
+                  y1={separator.y1}
+                  x2={separator.x2}
+                  y2={separator.y2}
+                  stroke="rgba(255,255,255,0.24)"
+                  strokeLinecap="round"
+                  strokeWidth="0.8"
+                />
+              ))}
+
+              <circle
+                cx={CENTER}
+                cy={CENTER}
+                r={RADIUS - 5}
+                fill="url(#wheelSheen)"
+                opacity="0.52"
+              />
+              <circle
+                cx={CENTER}
+                cy={CENTER}
+                r={INNER_RADIUS + 4}
+                fill="#020617"
+                opacity="0.72"
+              />
               <circle
                 cx={CENTER}
                 cy={CENTER}
                 r={INNER_RADIUS + 1}
-                fill="#08111f"
-                stroke="rgba(125,211,252,0.35)"
-                strokeWidth="2.4"
+                fill="url(#centerCap)"
+                stroke="rgba(224,242,254,0.42)"
+                strokeWidth="2"
               />
               <circle
                 cx={CENTER}
@@ -228,7 +288,7 @@ export default function RouletteWheel({ options, winnerIndex, shouldSpin, onFini
             </svg>
           </div>
 
-          <div className="pointer-events-none absolute left-1/2 top-1/2 z-20 flex h-[72px] w-[72px] -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-cyan-300/20 bg-[radial-gradient(circle_at_top,_rgba(15,23,42,0.92),_rgba(2,6,23,0.96))] text-[10px] font-semibold uppercase tracking-[0.28em] text-cyan-100 shadow-[0_0_28px_rgba(34,211,238,0.18)] sm:h-[86px] sm:w-[86px] sm:text-[11px]">
+          <div className="pointer-events-none absolute left-1/2 top-1/2 z-20 flex h-[74px] w-[74px] -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-cyan-100/25 bg-[radial-gradient(circle_at_35%_20%,rgba(14,165,233,0.34),rgba(2,6,23,0.96)_62%)] text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-50 shadow-[inset_0_1px_10px_rgba(255,255,255,0.08),0_0_30px_rgba(34,211,238,0.22)] sm:h-[90px] sm:w-[90px] sm:text-[11px]">
             PlayPoll
           </div>
         </div>

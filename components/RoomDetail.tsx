@@ -1151,9 +1151,9 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-4xl items-center px-6 py-16 sm:px-10">
-      <section className="w-full rounded-3xl border border-slate-800 bg-slate-950/70 p-8 shadow-glow">
-        <div className="space-y-3 text-center">
+    <main className="mx-auto flex min-h-screen w-full max-w-4xl items-center px-5 py-8 sm:px-8 sm:py-10">
+      <section className="w-full rounded-3xl border border-slate-800 bg-slate-950/70 p-5 shadow-glow sm:p-7">
+        <div className="space-y-2 text-center">
           <div className="flex justify-center">
             <Image
               src="/logos/textofondo.png?v=20260514-1733"
@@ -1161,7 +1161,7 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
               width={360}
               height={118}
               priority
-              className="h-auto w-full max-w-[260px] sm:max-w-[320px]"
+              className="h-auto w-full max-w-[230px] sm:max-w-[300px]"
             />
           </div>
           <p className="text-sm text-slate-400">Elegí. Votá. Jugá.</p>
@@ -1169,7 +1169,7 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
 
         {room.status === 'waiting' ? (
           <>
-            <div className="mt-6 flex justify-center">
+            <div className="mt-4 flex justify-center">
               <div className="space-y-2">
                 <button
                   type="button"
@@ -1184,21 +1184,21 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
               </div>
             </div>
 
-            <div className="hidden mt-6 space-y-1 text-sm text-slate-400">
+            <div className="hidden mt-4 space-y-1 text-sm text-slate-400">
               <p>1. Elegí un avatar</p>
               <p>2. Escribí tu nombre</p>
               <p>3. Esperá a que el host inicie la partida</p>
             </div>
 
             {hasJoined ? (
-              <div className="mx-auto mt-8 max-w-xl rounded-2xl border border-emerald-800/50 bg-emerald-950/30 p-6 text-center">
+              <div className="mx-auto mt-5 max-w-xl rounded-2xl border border-emerald-800/50 bg-emerald-950/30 p-5 text-center">
                 <p className="text-emerald-400">
                   Te has unido a la sala como: <span className="font-semibold">{nickname}</span>
                 </p>
               </div>
             ) : (
-              <form onSubmit={handleJoinRoom} className="mx-auto mt-8 max-w-xl space-y-6">
-                <div className="space-y-3 text-center">
+              <form onSubmit={handleJoinRoom} className="mx-auto mt-5 max-w-xl space-y-4">
+                <div className="space-y-2 text-center">
                   <p className="text-base font-medium text-white">1. Escribí tu nombre.</p>
                   <label className="block text-center text-sm font-medium uppercase tracking-[0.16em] text-slate-400">
                     Nombre:
@@ -1208,19 +1208,19 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
                     value={nickname}
                     onChange={(e) => setNickname(e.target.value)}
                     placeholder="Tu nombre"
-                    className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900/50 px-4 py-3 text-slate-200 placeholder-slate-500 focus:border-sky-500 focus:outline-none"
+                    className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900/50 px-4 py-2.5 text-slate-200 placeholder-slate-500 focus:border-sky-500 focus:outline-none"
                   />
                 </div>
 
-                <div className="space-y-3 text-center">
+                <div className="space-y-2 text-center">
                   <p className="text-base font-medium text-white">2. Elegí tu animal favorito!</p>
-                  <div className="mt-2 flex flex-wrap justify-center gap-5">
+                  <div className="mt-2 flex flex-wrap justify-center gap-4">
                     {AVATARS.map((avatar) => (
                       <button
                         key={avatar}
                         type="button"
                         onClick={() => setSelectedAvatar(avatar)}
-                        className={`flex h-32 w-32 items-center justify-center rounded-2xl transition-all duration-200 hover:scale-105 ${
+                        className={`flex h-28 w-28 items-center justify-center rounded-2xl transition-all duration-200 hover:scale-105 sm:h-[7.5rem] sm:w-[7.5rem] ${
                           selectedAvatar === avatar
                             ? 'border-2 border-cyan-400 bg-cyan-500/10 shadow-md'
                             : 'border border-slate-700 bg-slate-900/50 hover:border-slate-500 hover:bg-slate-900/80'
@@ -1233,7 +1233,7 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
                           alt={avatar}
                           width={80}
                           height={80}
-                          className="h-20 w-20 object-contain"
+                          className="h-16 w-16 object-contain sm:h-[4.5rem] sm:w-[4.5rem]"
                         />
                       </button>
                     ))}
@@ -1245,7 +1245,7 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
                 <button
                   type="submit"
                   disabled={joinLoading}
-                  className="w-full rounded-lg bg-sky-500 py-3 font-medium text-slate-950 transition hover:bg-sky-400 disabled:opacity-50"
+                  className="w-full rounded-lg bg-sky-500 py-2.5 font-medium text-slate-950 transition hover:bg-sky-400 disabled:opacity-50"
                 >
                   {joinLoading ? 'Entrando...' : 'Entrar a la sala'}
                 </button>
@@ -1253,7 +1253,7 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
             )}
 
             <div
-              className={`mx-auto mt-8 max-w-xl rounded-2xl border border-slate-800 bg-slate-900/40 p-5 ${
+              className={`mx-auto mt-5 max-w-xl rounded-2xl border border-slate-800 bg-slate-900/40 p-4 ${
                 isHost ? '' : 'hidden'
               }`}
             >
@@ -1264,7 +1264,7 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
                 <span className="text-xs text-slate-500">Editable por host</span>
               </div>
 
-              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 <label className="space-y-2 text-sm text-slate-300">
                   <span className="block text-xs uppercase tracking-[0.16em] text-slate-400">
                     Propuestas
@@ -1300,12 +1300,12 @@ export default function RoomDetail({ roomId }: RoomDetailProps) {
             </div>
 
             {!isHost ? (
-              <div className="mx-auto mt-8 max-w-xl rounded-2xl border border-slate-800 bg-slate-900/40 p-5 text-center">
+              <div className="mx-auto mt-5 max-w-xl rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-center">
                 <p className="text-sm text-slate-400">🕒 Esperando a que el host inicie la partida</p>
               </div>
             ) : null}
 
-            <div className="mx-auto mt-8 max-w-xl space-y-4">
+            <div className="mx-auto mt-5 max-w-xl space-y-3">
               <div className="flex items-center justify-between gap-4">
                 <h2 className="text-sm font-medium uppercase tracking-[0.16em] text-slate-400">
                   Jugadores ({players.length})
