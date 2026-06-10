@@ -1,25 +1,25 @@
 # PlayPoll
 
-> Una app en tiempo real para decidir que jugar con amigos en pocos minutos.
+PlayPoll es una app web en tiempo real para resolver rapido una pregunta comun entre amigos: que jugar.
 
-PlayPoll es un MVP funcional orientado a sesiones casuales entre amigos: una persona crea una sala, comparte el link, cada jugador propone opciones, todos votan en vivo y, si hay empate, la ruleta define el ganador.
+Una persona crea una sala, comparte el link, cada jugador propone opciones, todos votan en vivo y, si hay empate, la ruleta define el ganador.
 
-El proyecto nacio como una app fullstack liviana con foco en experiencia realtime. Actualmente tambien se esta profesionalizando desde el lado DevOps para mostrar una evolucion clara de producto + operacion.
+## Proyecto
 
-## Demo y estado actual
+Este repositorio muestra dos cosas al mismo tiempo:
 
-- Deploy principal: Vercel
-- Backend realtime y persistencia: Supabase
-- Estado del producto: MVP funcional y estable
-- Estado DevOps actual: Docker foundation cerrada, documentacion en progreso
+- un MVP funcional construido con Next.js y Supabase
+- una evolucion DevOps incremental, pensada para portfolio, sin sobreingenieria
 
-## Que hace
+El foco no esta en aparentar complejidad, sino en mostrar buenas decisiones de entrega, portabilidad, automatizacion y operacion sobre un proyecto chico y real.
 
-- Crea salas y genera links para invitar jugadores
-- Permite ingresar con nickname y avatar
-- Recibe propuestas de juegos sin duplicados
-- Actualiza jugadores, propuestas y votos en tiempo real
-- Resuelve empates con una ruleta final
+## Que se puede hacer
+
+- crear salas y compartir un link
+- ingresar con nickname y avatar
+- proponer juegos sin duplicados
+- votar en tiempo real
+- resolver empates con una ruleta final
 
 ## Stack
 
@@ -29,39 +29,32 @@ El proyecto nacio como una app fullstack liviana con foco en experiencia realtim
 - Tailwind CSS
 - Supabase
 - Docker
+- GitHub Actions
+- Vercel
 
-## Arquitectura actual
+## Arquitectura
 
 ```mermaid
 flowchart LR
     U["Usuarios"] --> V["Frontend Next.js en Vercel"]
     V --> S["Supabase"]
     S --> DB["Postgres"]
-    S --> RT["Realtime subscriptions"]
-    V --> D["Docker image para entorno portable"]
+    S --> RT["Realtime"]
+    V --> D["Docker image para validacion portable"]
 ```
 
-### Como esta organizado hoy
+## Como correrlo
 
-- `app/`: rutas y layout de Next.js App Router
-- `components/`: UI y logica cliente de las salas
-- `lib/`: cliente de Supabase y utilidades
-- `public/`: imagenes, favicons, avatars y sonidos
+### Variables de entorno
 
-### Nota arquitectonica importante
-
-Hoy la logica critica del flujo de juego sigue en cliente porque PlayPoll esta priorizando simplicidad de MVP. La linea de trabajo actual no busca re-arquitecturar eso todavia, sino mejorar entrega, portabilidad, trazabilidad y calidad operativa del repositorio.
-
-## Variables de entorno
-
-Crea un archivo `.env.local` a partir de `.env.example`:
+Usa `.env.example` como base y crea un archivo `.env.local`:
 
 ```env
 NEXT_PUBLIC_SUPABASE_URL=tu_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=tu_anon_key
 ```
 
-## Desarrollo local
+### Desarrollo local
 
 ```bash
 npm install
@@ -70,16 +63,9 @@ npm run dev
 
 La app queda disponible en `http://localhost:3000`.
 
-## Docker
+### Docker
 
-La imagen usa:
-
-- build multi-stage
-- `next build` con salida `standalone`
-- usuario no root en runtime
-- `sharp` instalado para compatibilidad con el build de Next.js
-
-### Build de imagen
+Build de imagen:
 
 ```bash
 docker build \
@@ -88,55 +74,50 @@ docker build \
   -t playpoll:local .
 ```
 
-### Ejecutar contenedor
+Ejecutar contenedor:
 
 ```bash
 docker run --rm -p 3000:3000 playpoll:local
 ```
 
-### Notas de ejecucion
+## Estado DevOps actual
 
-- El contenedor expone el puerto `3000`
-- Las variables `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_ANON_KEY` se inyectan en build
-- El endpoint `GET /api/health` devuelve una señal minima de salud del proceso web
-- El `HEALTHCHECK` del contenedor consulta `http://127.0.0.1:3000/api/health`
-- El despliegue productivo principal sigue estando en Vercel
+El proyecto ya incluye:
 
-## Estrategia de despliegue actual
+- Docker multi-stage con runtime no root
+- `.env.example` para onboarding
+- CI con GitHub Actions para lint, typecheck, build y docker build
+- branch protection sobre `main`
+- endpoint `GET /api/health`
+- `HEALTHCHECK` en Docker
+- Dependabot y CodeQL
+- deploy y previews en Vercel
 
-- Desarrollo local con Node.js
-- Validacion de portabilidad con Docker
-- Deploy productivo serverless con Vercel
-- Servicios de datos y realtime delegados a Supabase
+## Operacion
 
-Esta combinacion es deliberada: permite mantener bajo el costo operativo del MVP mientras se mejora el flujo de entrega del repositorio.
+Para troubleshooting y operacion basica:
 
-## Flujo de trabajo del repo
+- runbook operativo: [docs/operations.md](docs/operations.md)
 
-- `main` representa la linea estable
-- las mejoras se trabajan por fases chicas y controladas
-- cada fase busca una PR acotada y facil de defender
-- primero se valida localmente, despues se sube
+Ese documento cubre:
 
-## Roadmap DevOps
+- que valida CI
+- que valida `/api/health`
+- que mirar si falla Docker
+- que mirar si falla Vercel
+- limites actuales de observabilidad del MVP
 
-Fases previstas:
+## Enfoque del proyecto
 
-1. Docker foundation
-2. Documentacion Docker y arquitectura
-3. CI con GitHub Actions
-4. Branch protection
-5. Health endpoint y Docker `HEALTHCHECK`
-6. Dependabot y CodeQL
-7. Smoke test minimo
-8. Documentacion de operacion y observabilidad
+PlayPoll sigue siendo un MVP. La logica critica del flujo de juego hoy vive mayormente en cliente, y eso es una decision consciente para mantener simple el producto en esta etapa.
 
-## Objetivo de portfolio
+La parte interesante de este repositorio es que el proyecto fue mejorado por capas:
 
-Este repo no busca aparentar complejidad artificial. La idea es mostrar decisiones realistas sobre un producto pequeno:
+- primero portabilidad
+- despues documentacion
+- despues CI
+- despues proteccion de ramas
+- despues health checks
+- despues seguridad y runbooks
 
-- containerizacion portable
-- automatizacion gradual
-- seguridad incremental
-- documentacion operativa
-- buenas practicas de entrega sin sobreingenieria
+Eso lo vuelve util para mostrar criterio tecnico, no solo codigo funcional.
